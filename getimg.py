@@ -13,7 +13,9 @@ Download captcha images
 """
 
 from collections import UserDict
-from random import randint
+from random import randint, gauss
+from pathlib import Path
+import mimetypes
 import copy
 import re
 import asyncio
@@ -162,6 +164,7 @@ class http_client:
         print(header.dump(), False)
         try:
             body_length = int(header['Content-Length'])
+            content_type = header['Content-Type']
         except KeyError:
             return
 
@@ -174,20 +177,29 @@ class http_client:
         # step 5 process http response
         if output is None:
             return
-        f = open(output, 'wb')
+        outpath = Path(output)
+        if outpath.suffix == '':
+            guess_ext = mimetypes.guess_extension(content_type)
+            outpath = Path(f"{outpath}{guess_ext}")
         # TODO use async write
-        f.write(body)
+        outpath.write_bytes(body)
 
+    @staticmethod
+    async def loop_get(url: str, loop = 1, prefix: str = 'output'):
+        for i in range(loop):
+            await http_client.get(url, f"{prefix}_{i}")
+            await asyncio.sleep(abs(gauss(2, 1)))
 
 if __name__ == '__main__':
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('url', help = "request url")
-    parser.add_argument('-o', '--output', help = "output filename")
+    parser.add_argument('-o', '--output', help = "output file prefix", default = "output")
+    parser.add_argument('-l', '--loop', help = "loop counter", type = int, default = 1)
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
 
-    cli = http_client.get(args.url, args.output)
+    cli = http_client.loop_get(args.url, args.loop, args.output)
 
     loop.run_until_complete(cli)
