@@ -104,6 +104,10 @@ class http_header(UserDict):
                 output.append(f"{k}: {v}")
         return "\r\n".join(output)
 
+def print_v(*args, verbose = True, **kwargs):
+    if verbose:
+        print(*args, **kwargs)
+
 class http_client:
     protos = {
             'http': 80,
@@ -120,10 +124,10 @@ class http_client:
         return (url, 'http',)
 
     @staticmethod
-    async def get(url: str, output = None):
+    async def get(url: str, output = None, verbose = False):
         # step1 parse url
         url, proto = http_client.extract_url(url)
-        print(url, proto)
+        print_v(url, proto, verbose = verbose)
         host = url.split('/')[0]
         if ':' in host:
             port = host.rpartition(':')[-1]
@@ -138,10 +142,11 @@ class http_client:
         headers['host'] = host
         headers['user-agent'] = ua
         headers['Accept'] = '*/*'
+        headers['x-forwarded-for'] = "1.2.3.4"
         dump_header = headers.dump()
         to_send = f"GET {path} HTTP/1.1\r\n{dump_header}\r\n\r\n"
-        print(to_send)
-        print(host, port)
+        print_v(to_send, verbose = verbose)
+        print_v(host, port, verbose = verbose)
         ssl = True if proto == 'https' else False
 
         # step3 send request
@@ -157,11 +162,11 @@ class http_client:
         # step4.2 get http response header
         while True:
             got = await asyncio.wait_for(reader.readline(), 10)
-            print("got:", got)
+            print_v("got:", got, verbose = verbose)
             if got == b'\r\n':
                 break
             header = http_header.parseFrom(got.decode(), header)
-        print(header.dump(), False)
+        print_v(header.dump(), verbose = verbose)
         try:
             body_length = int(header['Content-Length'])
             content_type = header['Content-Type']
@@ -172,7 +177,7 @@ class http_client:
         body = b''
         while len(body) < body_length:
             body += await asyncio.wait_for(reader.readexactly(1), 10)
-        print(body)
+        print_v(body, verbose = verbose)
 
         # step 5 process http response
         if output is None:
@@ -185,9 +190,11 @@ class http_client:
         outpath.write_bytes(body)
 
     @staticmethod
-    async def loop_get(url: str, loop = 1, prefix: str = 'output'):
+    async def loop_get(url: str, loop = 1, prefix: str = 'output', **kwargs):
+        print(url)
         for i in range(loop):
-            await http_client.get(url, f"{prefix}_{i}")
+            await http_client.get(url, f"{prefix}_{i}", **kwargs)
+            print(f"{i}")
             await asyncio.sleep(abs(gauss(2, 1)))
 
 if __name__ == '__main__':
@@ -196,10 +203,11 @@ if __name__ == '__main__':
     parser.add_argument('url', help = "request url")
     parser.add_argument('-o', '--output', help = "output file prefix", default = "output")
     parser.add_argument('-l', '--loop', help = "loop counter", type = int, default = 1)
+    parser.add_argument('-v', '--verbose', help = "verbose output", type = bool, default = False)
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
 
-    cli = http_client.loop_get(args.url, args.loop, args.output)
+    cli = http_client.loop_get(args.url, args.loop, args.output, verbose = args.verbose)
 
     loop.run_until_complete(cli)
